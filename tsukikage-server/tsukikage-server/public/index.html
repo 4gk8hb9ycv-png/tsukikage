@@ -805,7 +805,7 @@ buildNav();makeMap();
  let lastFace=null,faceAt=0;
  function others(){
   if(!room)return[];
-  return room.peers().filter(p=>!p.isMe&&p.presence&&p.presence.area).map(p=>({id:p.peer,name:p.presence.name,area:p.presence.area,x:Number(p.presence.x),y:Number(p.presence.y),talk:p.presence.talk||null,face:faceOK(p.presence.face)?(FC[p.peer]=p.presence.face):(FC[p.peer]||null),sp:faceOK(p.presence.sp)?(FC['sp:'+p.peer]=p.presence.sp):(FC['sp:'+p.peer]||null),fc:['front','back','left','right'].includes(p.presence.fc)?p.presence.fc:'front',acc:typeof p.presence.acc==='string'?p.presence.acc.slice(0,20):''}));
+  return room.peers().filter(p=>!p.isMe&&p.presence&&p.presence.area).map(p=>({id:p.peer,name:p.presence.name,area:p.presence.area,x:Number(p.presence.x),y:Number(p.presence.y),talk:p.presence.talk||null,face:faceOK(p.presence.face)?(FC[p.peer]=p.presence.face):(FC[p.peer]||null),sp:faceOK(p.presence.sp)?(FC['sp:'+p.peer]=p.presence.sp):(FC['sp:'+p.peer]||null),fc:['front','back','left','right'].includes(p.presence.fc)?p.presence.fc:'front',acc:typeof p.presence.acc==='string'?p.presence.acc.slice(0,20):'',cd:typeof p.presence.cd==='string'&&/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(p.presence.cd)?p.presence.cd:''}));
  }
  const peerOf=id=>room&&room.peers().find(p=>p.peer===id);
 
@@ -966,7 +966,7 @@ buildNav();makeMap();
   if(!room||!studentProfile)return;
   const g=$('game'),vis=g&&!g.classList.contains('hidden');
   if(myTalk&&(!vis||areas[current].id!==talkArea))endTalk(false,'구역을 벗어나 대화가 끝났어요.');
-  const st=vis?{name:clean(studentProfile.name,12),acc:String(studentProfile.account||'').slice(0,20),area:areas[current].id,x:player.x,y:player.y,dir:player.dir,fc:player.face||'front'}:{area:null};
+  const st=vis?{name:clean(studentProfile.name,12),acc:String(studentProfile.account||'').slice(0,20),cd:studentProfile.fcode||'',area:areas[current].id,x:player.x,y:player.y,dir:player.dir,fc:player.face||'front'}:{area:null};
   const f=vis&&studentProfile.face||'',sp=vis&&studentProfile.sprite||'';const fk=f+'|'+sp;const fNeed=fk!==lastFace||((f||sp)&&Date.now()-faceAt>30000);
   const key=JSON.stringify(st);if(key===lastKey&&!fNeed)return;lastKey=key;
   if(fNeed){lastFace=fk;faceAt=Date.now();room.presence(Object.assign({},st,{face:f||null,sp:sp||null})).catch(()=>{})}else room.presence(st).catch(()=>{});
@@ -2238,7 +2238,7 @@ function showButton(){const body=document.querySelector('#settingsWin .set-body'
 const $=id=>document.getElementById(id);
 const MAX=5,RK='moon_roster',PRE='moon_char_';
 // 캐릭터마다 따로 저장되는 것들
-const CK=['moon_academy_profile','moon_academy_rpg','moon_academy_sms','moon_academy_unread','moon_academy_memo','moon_academy_freechat','moon_academy_day0'];
+const CK=['moon_academy_profile','moon_academy_rpg','moon_academy_sms','moon_academy_unread','moon_academy_memo','moon_academy_freechat','moon_academy_day0','moon_academy_friends','moon_academy_dm','moon_academy_outbox'];
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
 const J=(v,f)=>{try{return v?JSON.parse(v):f}catch(e){return f}};
 const prof=()=>(typeof studentProfile!=='undefined'?studentProfile:null);
@@ -2566,115 +2566,188 @@ window.__spriteEditor=function(host,o){
 .fr-face{width:28px;height:28px;image-rendering:pixelated;border:1px solid #888;object-fit:cover;flex:none}
 .fr-add{display:flex;gap:6px}.fr-add input{flex:1;min-width:0;padding:6px 8px;font-size:12px;box-shadow:none;border-width:1px}.fr-add button{padding:6px 10px;font-size:12px}
 #profileMini.has-freq::after{content:' 🤝'}
+.fr-mine{display:flex;align-items:center;gap:8px;border:1px solid #888;background:#2c2c2c;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#bbb}
+.fr-code{font-size:16px;letter-spacing:2px;color:#fff;font-family:ui-monospace,Menlo,Consolas,monospace;flex:1}.fr-mine button{padding:4px 10px;font-size:11px;box-shadow:none}
+.fr-add{margin-bottom:10px}
+.sms-sec{font-size:10px;font-weight:bold;color:#555;margin:6px 0 3px;border-bottom:1px dashed #999;padding-bottom:2px}.sms-sec-note{font-size:10px;color:#777;padding:4px 2px}
+.sms-friends{display:flex;flex-direction:column;gap:4px;margin-bottom:4px}
+.fdm-back{padding:2px 6px;font-size:10px;box-shadow:none;margin-bottom:4px}.fdm-st{font-size:10px;color:#666;font-weight:normal;margin-left:6px}.fdm-pend{font-size:9px;opacity:.6}
 </style>
 <script>
-// ===== 친구 =====
-// 친구 목록은 계정마다 이 브라우저에 저장돼요 (서버가 다시 켜져도 안 사라지게).
-// 신청·수락은 접속 중인 사람끼리 실시간으로 주고받아요.
+// ===== 캐릭터 친구 · 문자 =====
+// 친구와 문자는 캐릭터마다 따로예요. 캐릭터를 만들면 친구 코드(예: K7QM-3XPA)가 하나 생겨요.
+// 서버판: 서버 우편함으로 주고받아서 상대가 꺼져 있어도 들어오면 받아요.
+// Claude 링크판: 둘 다 접속해 있을 때 실시간으로 주고받아요.
 (function(){
 'use strict';
 const $=id=>document.getElementById(id);
-const MAX=50;
-const me=()=>(typeof studentProfile!=='undefined'&&studentProfile)||null;
-const myAcc=()=>{const p=me();return p?String(p.account||'').slice(0,20):''};
-const lc=s=>String(s||'').toLowerCase();
-const KEY=()=>'moon_friends_'+lc(myAcc());
-function load(){try{const d=JSON.parse(localStorage.getItem(KEY())||'null');return d&&typeof d==='object'?{list:Array.isArray(d.list)?d.list:[],sent:d.sent||{}}:{list:[],sent:{}}}catch(e){return {list:[],sent:{}}}}
-function save(d){try{localStorage.setItem(KEY(),JSON.stringify(d))}catch(e){}}
-const isFriend=acc=>load().list.some(f=>lc(f.acc)===lc(acc));
+const AB='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',MAXF=50,MAXMSG=200;
+const K_F='moon_academy_friends',K_DM='moon_academy_dm',K_OUT='moon_academy_outbox';
+const prof=()=>(typeof studentProfile!=='undefined'&&studentProfile)||null;
+const J=(k,f)=>{try{const v=JSON.parse(localStorage.getItem(k)||'null');return v==null?f:v}catch(e){return f}};
+const W=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const clean=(t,n)=>String(t||'').replace(/[\u0000-\u001f<>]/g,'').slice(0,n||16);
-let room=null,reqN=0,resN=0,draft='';const seenQ={},seenA={};const incoming=new Map(); // acc -> {peer,name,n}
-function peers(){try{return room?room.peers():[]}catch(e){return []}}
-function peerByAcc(acc){return peers().find(p=>!p.isMe&&p.presence&&lc(p.presence.acc)===lc(acc))}
-function areaName(id){try{const a=areas.find(x=>x.id===id);return a?a.name:''}catch(e){return ''}}
+const codeOK=c=>typeof c==='string'&&/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(c);
+const normCode=c=>{const s=String(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'');return s.length===8?s.slice(0,4)+'-'+s.slice(4):''};
+const rid=()=>Date.now().toString(36)+Array.from(crypto.getRandomValues(new Uint8Array(6)),b=>(b%36).toString(36)).join('');
+function genCode(){const a=crypto.getRandomValues(new Uint8Array(8));let s='';a.forEach((b,i)=>{s+=AB[b%AB.length];if(i===3)s+='-'});return s}
+function myCode(){const p=prof();if(!p)return '';if(!codeOK(p.fcode)){p.fcode=genCode();try{localStorage.setItem('moon_academy_profile',JSON.stringify(p))}catch(e){}}return p.fcode}
+const F=()=>{const f=J(K_F,{});f.list=Array.isArray(f.list)?f.list:[];f.sent=f.sent||{};f.inc=f.inc||{};f.seen=Array.isArray(f.seen)?f.seen:[];return f};
+const saveF=f=>{if(f.seen.length>600)f.seen=f.seen.slice(-600);W(K_F,f)};
+const DM=()=>J(K_DM,{});const saveDM=d=>W(K_DM,d);
+const OUT=()=>{const o=J(K_OUT,[]);return Array.isArray(o)?o:[]};const saveOut=o=>W(K_OUT,o.slice(-200));
+const isFriend=c=>F().list.some(x=>x.code===c);
+const friendName=c=>{const x=F().list.find(x=>x.code===c);return x?x.name:c};
 function toast(t){try{notice('친구',t)}catch(e){}}
 
-// ---------- 보내기 ----------
-function request(acc,name){acc=clean(acc,20);if(!acc)return;if(lc(acc)===lc(myAcc())){toast('나 자신에게는 신청할 수 없어요.');return false}
- if(isFriend(acc)){toast('이미 친구예요.');return false}
- const d=load();if(d.list.length>=MAX){toast('친구는 '+MAX+'명까지예요.');return false}
- if(!room){toast('지금은 접속이 끊겨 있어요. 잠시 뒤에 다시 해 주세요.');return false}
- if(!peerByAcc(acc)){toast('지금 접속해 있지 않은 아이디예요. 친구가 들어와 있을 때 다시 신청해 주세요.');return false}
- // 상대가 이미 나에게 신청했으면 바로 친구
- if(incoming.has(lc(acc))){accept(acc,true);return true}
- d.sent[lc(acc)]={acc,name:clean(name),at:Date.now()};save(d);
- room.presence({fq:{n:++reqN+Date.now()%100000,to:acc,name:clean(me().name)}}).catch(()=>{});
- toast((name?clean(name)+' 님에게 ':'')+'친구 신청을 보냈어요.');refresh();return true}
-function accept(acc,ok){const it=incoming.get(lc(acc));incoming.delete(lc(acc));hideCard();
- if(room)room.presence({fa:{n:++resN+Date.now()%100000,to:acc,ok:!!ok}}).catch(()=>{});
- if(ok){add(acc,it?it.name:acc);toast((it?it.name:acc)+' 님과 친구가 되었어요!')}refresh()}
-function add(acc,name){const d=load();if(!d.list.some(f=>lc(f.acc)===lc(acc))){d.list.push({acc:clean(acc,20),name:clean(name),since:Date.now()});}else d.list.forEach(f=>{if(lc(f.acc)===lc(acc)&&name)f.name=clean(name)});delete d.sent[lc(acc)];save(d)}
-function remove(acc){const d=load();d.list=d.list.filter(f=>lc(f.acc)!==lc(acc));delete d.sent[lc(acc)];save(d);refresh()}
+// ---------- 보내기 (받았다는 확인이 올 때까지 다시 보내요) ----------
+function queue(to,k,d){const o=OUT();const it={id:rid(),to,k,d:d||{},at:Date.now()};o.push(it);saveOut(o);flushSoon();return it}
+function meCard(){const p=prof();return {name:clean(p&&p.name),face:p&&p.face&&p.face.length<9000?p.face:null}}
 
 // ---------- 받기 ----------
-function handle(p){const s=p.presence||{};const acc=s.acc;if(!acc)return;
- if(s.fq&&s.fq.n!==seenQ[p.peer]){seenQ[p.peer]=s.fq.n;if(lc(s.fq.to)===lc(myAcc())){
-   if(isFriend(acc)){room.presence({fa:{n:++resN+Date.now()%100000,to:acc,ok:true}}).catch(()=>{})}
-   else if(load().sent[lc(acc)]){accept(acc,true);incoming.delete(lc(acc))}
-   else{incoming.set(lc(acc),{peer:p.peer,name:clean(s.fq.name||s.name),acc});showCard();refresh()}}}
- if(s.fa&&s.fa.n!==seenA[p.peer]){seenA[p.peer]=s.fa.n;if(lc(s.fa.to)===lc(myAcc())){const d=load();const sent=d.sent[lc(acc)];
-   if(s.fa.ok){if(sent||isFriend(acc)){add(acc,clean(s.name)||(sent&&sent.name));toast(clean(s.name||acc)+' 님이 친구 신청을 받았어요!')}}
-   else if(sent){delete d.sent[lc(acc)];save(d);toast(clean(s.name||acc)+' 님이 이번엔 친구 신청을 거절했어요.')}refresh()}}
- // 친구 이름이 바뀌었으면 맞춰 두기
- if(s.name&&isFriend(acc)){const d=load();let ch=false;d.list.forEach(f=>{if(lc(f.acc)===lc(acc)&&f.name!==clean(s.name)){f.name=clean(s.name);ch=true}});if(ch)save(d)}}
-function onPeers(ch){(ch.joined||[]).forEach(p=>{if(p.isMe)return;const s=p.presence||{};seenQ[p.peer]=s.fq?s.fq.n:0;seenA[p.peer]=s.fa?s.fa.n:0});
- (ch.updated||[]).forEach(p=>{if(!p.isMe)handle(p)});
- (ch.left||[]).forEach(p=>{delete seenQ[p.peer];delete seenA[p.peer];for(const [k,v] of incoming)if(v.peer===p.peer)incoming.delete(k);if(!incoming.size)hideCard()});
- if((ch.joined||[]).length||(ch.left||[]).length)refresh()}
+function process(it){const f=F();if(f.seen.includes(it.id))return false;f.seen.push(it.id);const from=it.from;const d=it.d||{};
+ if(it.k==='rcpt'){const o=OUT().filter(x=>!(d.ids||[]).includes(x.id));saveOut(o);saveF(f);return true}
+ // 받았다는 확인 보내기
+ queue(from,'rcpt',{ids:[it.id]});
+ if(it.k==='req'){if(f.list.some(x=>x.code===from)){queue(from,'acc',meCard())}
+   else if(f.sent[from]){addFriend(f,from,d.name);delete f.sent[from];queue(from,'acc',meCard());toast(clean(d.name)+' 님과 친구가 되었어요!')}
+   else{f.inc[from]={name:clean(d.name),at:Date.now()};toast('🤝 '+clean(d.name)+' 님이 친구 신청을 했어요.');setTimeout(card,0)}}
+ else if(it.k==='acc'){if(f.sent[from]||f.inc[from]||!f.list.some(x=>x.code===from)&&f.sent[from]!==undefined){}
+   if(f.sent[from]){addFriend(f,from,d.name);delete f.sent[from];toast(clean(d.name)+' 님이 친구 신청을 받았어요!')}
+   else if(f.list.some(x=>x.code===from))f.list.forEach(x=>{if(x.code===from&&d.name)x.name=clean(d.name)})}
+ else if(it.k==='rej'){if(f.sent[from]){toast(clean(f.sent[from].name||from)+' 님이 이번엔 친구 신청을 거절했어요.');delete f.sent[from]}}
+ else if(it.k==='msg'){if(f.list.some(x=>x.code===from)){const dm=DM();const th=dm[from]=dm[from]||[];th.push({id:it.id,me:false,t:clean(d.t,160),at:it.at||Date.now()});if(th.length>MAXMSG)th.splice(0,th.length-MAXMSG);saveDM(dm);
+   if(d.name)f.list.forEach(x=>{if(x.code===from)x.name=clean(d.name)});
+   if(openCode!==from||!phoneOpen()){phoneData.unread['@'+from]=(phoneData.unread['@'+from]||0)+1;try{unreadSave();refreshFlip()}catch(e){}try{notice('✉ '+friendName(from),clean(d.t,40))}catch(e){}}
+   else renderThread()}}
+ saveF(f);refresh();return true}
+function addFriend(f,code,name){if(f.list.length>=MAXF)return;if(!f.list.some(x=>x.code===code))f.list.push({code,name:clean(name)||code,since:Date.now()});delete f.inc[code]}
+
+// ---------- 전달 방법 ----------
+let room=null;const SRV=!!window.__SERVER_MODE;let flushT=0,busy=false;
+function flushSoon(){clearTimeout(flushT);flushT=setTimeout(tick,150)}
+async function tick(){if(busy)return;const code=myCode();if(!code)return;busy=true;
+ try{if(SRV)await srvTick(code);else presenceTick(code)}catch(e){}finally{busy=false}}
+// 서버 우편함
+let codeReady=false;
+async function srvTick(code){const S=window.__srv;if(!S)return;const a=S.getAuth();if(!a)return;let token=a.token;
+ if(!codeReady){token=await S.ensureToken();if(!token)return;const r=await S.post('/api/code',{token,code});
+  if(r.status===409&&!F().list.length){const p=prof();p.fcode=genCode();try{localStorage.setItem('moon_academy_profile',JSON.stringify(p))}catch(e){}return}
+  if(r.status===401){codeReady=false;a.token=null;S.setAuth(a);return}if(!r.j.ok)return;codeReady=true}
+ const o=OUT();const now=Date.now();const due=o.filter(x=>!x.sentAt||now-x.sentAt>45000);
+ if(due.length){const r=await S.post('/api/mail/send',{token,from:code,items:due.map(x=>({id:x.id,to:x.to,k:x.k,d:x.d}))});
+  if(r.status===401||r.status===403){codeReady=false;return}
+  if(r.j.ok){const ids=new Set(due.map(x=>x.id));let oo=OUT().map(x=>ids.has(x.id)?Object.assign(x,{sentAt:now}):x);oo=oo.filter(x=>!(x.k==='rcpt'&&ids.has(x.id)));saveOut(oo)}}
+ const r=await fetch('/api/mail?token='+encodeURIComponent(token)+'&code='+encodeURIComponent(code));
+ if(r.status===401||r.status===403){codeReady=false;return}const j=await r.json();
+ if(j.items&&j.items.length){j.items.forEach(process);await S.post('/api/mail/ack',{token,code,ids:j.items.map(x=>x.id)})}}
+// Claude 링크판: 접속 중인 사람끼리 상태에 실어 보내기
+let lastPost='';const rcptKeep={};
+function presenceTick(code){if(!room)return;const now=Date.now();
+ let o=OUT();o=o.filter(x=>!(x.k==='rcpt'&&now-x.at>120000));saveOut(o);
+ const post=o.slice(-20).map(x=>({id:x.id,to:x.to,k:x.k,d:x.d}));const key=JSON.stringify(post);
+ if(key!==lastPost){lastPost=key;room.presence({cd:code,post}).catch(()=>{})}
+ let ps=[];try{ps=room.peers()}catch(e){}
+ ps.forEach(p=>{if(p.isMe)return;const s=p.presence||{};if(!codeOK(s.cd)||!Array.isArray(s.post))return;s.post.slice(0,40).forEach(it=>{if(it&&it.to===code&&typeof it.id==='string')process({id:it.id,from:s.cd,k:String(it.k),d:it.d||{},at:now})})})}
+setInterval(()=>{const g=$('game');if(g&&!g.classList.contains('hidden'))tick()},SRV?4000:1500);
+window.addEventListener('focus',()=>flushSoon());
+(async()=>{try{if(window.claude&&claude.use){const r=await claude.use('room');if(r){room=r;r.onPeers(()=>{if(!SRV)flushSoon();refresh(true)},()=>{})}}}catch(e){}})();
+
+// ---------- 친구 신청 / 수락 / 삭제 ----------
+function request(code,name){code=normCode(code);const me=myCode();if(!codeOK(code)){toast('친구 코드는 XXXX-XXXX 모양이에요.');return false}
+ if(code===me){toast('내 코드예요. 친구의 코드를 넣어 주세요.');return false}
+ const f=F();if(f.list.some(x=>x.code===code)){toast('이미 친구예요.');return false}if(f.list.length>=MAXF){toast('친구는 '+MAXF+'명까지예요.');return false}
+ if(f.inc[code]){accept(code,true);return true}
+ f.sent[code]={name:clean(name)||'',at:Date.now()};saveF(f);queue(code,'req',meCard());
+ toast((name?clean(name)+' 님에게 ':'')+'친구 신청을 보냈어요.'+(SRV?' 상대가 접속하면 받아요.':' 상대가 접속해 있으면 바로 가요.'));refresh();return true}
+function accept(code,ok){const f=F();const it=f.inc[code];delete f.inc[code];
+ if(ok){addFriend(f,code,it&&it.name);queue(code,'acc',meCard());toast(clean(it&&it.name||code)+' 님과 친구가 되었어요!')}else queue(code,'rej',{});
+ saveF(f);card();refresh()}
+function removeFriend(code){const f=F();f.list=f.list.filter(x=>x.code!==code);saveF(f);delete phoneData.unread['@'+code];try{unreadSave();refreshFlip()}catch(e){}refresh()}
 
 // ---------- 신청 카드 ----------
-function showCard(){let c=$('friendReq');const it=[...incoming.values()][0];if(!it)return hideCard();
+function card(){const f=F();const k=Object.keys(f.inc)[0];let c=$('friendReq');if(!k){if(c)c.classList.add('hidden');return}
  if(!c){c=document.createElement('div');c.id='friendReq';c.className='talk-req friend-req';c.setAttribute('role','alertdialog');document.body.append(c)}
- c.textContent='';const t=document.createElement('div');t.className='fr-t';t.textContent='🤝 '+it.name+' 님('+it.acc+')이 친구 신청을 했어요';
- const row=document.createElement('div');row.className='fr-row';
- const y=document.createElement('button');y.type='button';y.className='primary';y.textContent='수락';y.onclick=()=>{accept(it.acc,true);showCard()};
- const n=document.createElement('button');n.type='button';n.textContent='거절';n.onclick=()=>{accept(it.acc,false);showCard()};
- row.append(y,n);c.append(t,row);c.classList.remove('hidden');try{softDing()}catch(e){}}
-function hideCard(){const c=$('friendReq');if(c&&!incoming.size)c.classList.add('hidden')}
+ c.textContent='';const t=document.createElement('div');t.className='fr-t';t.textContent='🤝 '+(f.inc[k].name||'학생')+' 님('+k+')이 친구 신청을 했어요';
+ const row=document.createElement('div');row.className='fr-row';const y=document.createElement('button');y.type='button';y.className='primary';y.textContent='수락';y.onclick=()=>accept(k,true);
+ const n=document.createElement('button');n.type='button';n.textContent='거절';n.onclick=()=>accept(k,false);const l=document.createElement('button');l.type='button';l.textContent='나중에';l.onclick=()=>c.classList.add('hidden');
+ row.append(y,n,l);c.append(t,row);c.classList.remove('hidden')}
 
-// ---------- 다른 학생 팝업에 버튼 ----------
-window.__friendBtn=function(pp,p){if(!p.acc)return;const b=document.createElement('button');b.type='button';
- if(isFriend(p.acc)){b.textContent='친구 ✓';b.disabled=true}
- else if(load().sent[lc(p.acc)]){b.textContent='신청함…';b.disabled=true}
- else{b.textContent='친구 추가';b.onclick=()=>{pp.classList.add('hidden');request(p.acc,p.name)}}
+// ---------- 접속 상태 ----------
+function onlineOf(code){let ps=[];try{ps=room?room.peers():[]}catch(e){}return ps.find(p=>!p.isMe&&p.presence&&p.presence.cd===code)}
+function areaName(id){try{const a=areas.find(x=>x.id===id);return a?a.name:''}catch(e){return ''}}
+
+// ---------- 다른 학생 팝업 ----------
+window.__friendBtn=function(pp,p){const code=p.cd;if(!codeOK(code))return;const b=document.createElement('button');b.type='button';const f=F();
+ if(f.list.some(x=>x.code===code)){b.textContent='✉ 문자';b.onclick=()=>{pp.classList.add('hidden');openFriendThread(code)}}
+ else if(f.sent[code]){b.textContent='신청함…';b.disabled=true}
+ else{b.textContent='친구 추가';b.onclick=()=>{pp.classList.add('hidden');request(code,p.name)}}
  const close=[...pp.querySelectorAll('button')].find(x=>x.textContent==='닫기');if(close)pp.insertBefore(b,close);else pp.append(b)};
 
 // ---------- 학생 정보 → 친구 탭 ----------
-function friendsTab(body){const d=load();const ps=peers();
- const sub=document.createElement('div');sub.className='stat-sub';sub.textContent='친구 ('+d.list.length+' / '+MAX+')';body.append(sub);
- // 받은 신청
- if(incoming.size){const box=document.createElement('div');box.className='fr-in';[...incoming.values()].forEach(it=>{const r=document.createElement('div');r.className='fr-item';
-  const i=document.createElement('span');i.className='fr-i';i.textContent='🤝 '+it.name+' ('+it.acc+')';const y=document.createElement('button');y.type='button';y.textContent='수락';y.onclick=()=>accept(it.acc,true);
-  const n=document.createElement('button');n.type='button';n.textContent='거절';n.onclick=()=>accept(it.acc,false);r.append(i,y,n);box.append(r)});body.append(box)}
- // 목록
+let draft='';
+function friendsTab(body){const f=F();const code=myCode();
+ const mine=document.createElement('div');mine.className='fr-mine';const ml=document.createElement('span');ml.textContent='내 친구 코드';const mc=document.createElement('b');mc.textContent=code;mc.className='fr-code';
+ const cp=document.createElement('button');cp.type='button';cp.textContent='복사';cp.onclick=async()=>{try{await navigator.clipboard.writeText(code);cp.textContent='복사됨!'}catch(e){cp.textContent='길게 눌러 복사'}setTimeout(()=>cp.textContent='복사',1500)};
+ mine.append(ml,mc,cp);body.append(mine);
+ const form=document.createElement('div');form.className='fr-add';const inp=document.createElement('input');inp.placeholder='친구 코드 (예: K7QM-3XPA)';inp.maxLength=12;inp.value=draft;inp.setAttribute('aria-label','친구 코드');inp.addEventListener('input',()=>{draft=inp.value});
+ const go=document.createElement('button');go.type='button';go.textContent='친구 신청';const send=()=>{if(request(inp.value)){draft='';inp.value=''}};go.onclick=send;inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();send()}});
+ form.append(inp,go);body.append(form);
+ const inc=Object.keys(f.inc);if(inc.length){const box=document.createElement('div');box.className='fr-in';inc.forEach(k=>{const r=document.createElement('div');r.className='fr-item';const i=document.createElement('span');i.className='fr-i';i.textContent='🤝 '+(f.inc[k].name||'학생')+' ('+k+')';
+  const y=document.createElement('button');y.type='button';y.textContent='수락';y.onclick=()=>accept(k,true);const n=document.createElement('button');n.type='button';n.textContent='거절';n.onclick=()=>accept(k,false);r.append(i,y,n);box.append(r)});body.append(box)}
+ const sub=document.createElement('div');sub.className='stat-sub';sub.textContent='친구 ('+f.list.length+' / '+MAXF+') · 이 캐릭터의 친구예요';body.append(sub);
  const list=document.createElement('div');list.className='fr-list';
- if(!d.list.length){const e=document.createElement('div');e.className='alloc-note';e.textContent='아직 친구가 없어요. 맵에서 다른 학생을 눌러 "친구 추가"를 하거나, 아래에 아이디를 넣어 신청해 보세요.';list.append(e)}
- const onl=f=>ps.find(p=>!p.isMe&&p.presence&&lc(p.presence.acc)===lc(f.acc));
- d.list.slice().sort((a,b)=>(onl(b)?1:0)-(onl(a)?1:0)).forEach(f=>{const p=onl(f);const r=document.createElement('div');r.className='fr-item'+(p?' on':'');
-  const face=(window.__faceCache||{})[p&&p.peer];if(face){const im=document.createElement('img');im.className='fr-face';im.alt='';im.src=face;r.append(im)}
-  const i=document.createElement('span');i.className='fr-i';const b=document.createElement('b');b.textContent=f.name||f.acc;const sm=document.createElement('small');
-  sm.textContent=(p?'● 접속 중'+(p.presence.area?' · '+areaName(p.presence.area):''):'○ 오프라인')+' · '+f.acc;i.append(b,sm);r.append(i);
-  let armed=false;const del=document.createElement('button');del.type='button';del.textContent='삭제';del.setAttribute('aria-label',(f.name||f.acc)+' 친구 삭제');
-  del.onclick=()=>{if(!armed){armed=true;del.textContent='정말?';setTimeout(()=>{armed=false;del.textContent='삭제'},3000);return}remove(f.acc)};r.append(del);list.append(r)});
- body.append(list);
- // 보낸 신청
- const sent=Object.values(d.sent||{}).filter(x=>Date.now()-x.at<864e5);if(sent.length){const s=document.createElement('div');s.className='alloc-note';s.textContent='보낸 신청: '+sent.map(x=>(x.name||x.acc)).join(', ')+' (상대가 수락하면 친구가 돼요)';body.append(s)}
- // 아이디로 신청
- const form=document.createElement('div');form.className='fr-add';const inp=document.createElement('input');inp.value=draft;inp.addEventListener('input',()=>{draft=inp.value});inp.placeholder='친구 아이디';inp.maxLength=20;inp.setAttribute('aria-label','친구 아이디');
- const go=document.createElement('button');go.type='button';go.textContent='친구 신청';const msg=document.createElement('div');msg.className='cw-msg';msg.setAttribute('role','status');
- const send=()=>{const v=inp.value.trim();if(!v){msg.textContent='아이디를 입력해 주세요.';return}const p=peerByAcc(v);if(request(v,p&&p.presence.name)){inp.value='';draft='';msg.textContent=''}else if(!p)msg.textContent='지금 접속해 있는 아이디가 아니에요. 친구가 접속해 있을 때 다시 해 보세요.'};
- go.onclick=send;inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();send()}});
- form.append(inp,go);body.append(form,msg);
- const note=document.createElement('div');note.className='alloc-note';note.textContent='친구 신청은 서로 접속해 있을 때만 주고받을 수 있어요. 내 아이디: '+myAcc();body.append(note)}
+ if(!f.list.length){const e=document.createElement('div');e.className='alloc-note';e.textContent='아직 친구가 없어요. 친구 코드를 주고받거나, 맵에서 다른 학생을 눌러 "친구 추가"를 해 보세요.';list.append(e)}
+ f.list.slice().sort((a,b)=>(onlineOf(b.code)?1:0)-(onlineOf(a.code)?1:0)).forEach(x=>{const p=onlineOf(x.code);const r=document.createElement('div');r.className='fr-item'+(p?' on':'');
+  const face=p&&(window.__faceCache||{})[p.peer];if(face){const im=document.createElement('img');im.className='fr-face';im.alt='';im.src=face;r.append(im)}
+  const i=document.createElement('span');i.className='fr-i';const b=document.createElement('b');b.textContent=x.name||x.code;const sm=document.createElement('small');sm.textContent=(p?'● 접속 중'+(p.presence.area?' · '+areaName(p.presence.area):''):'○ 오프라인')+' · '+x.code;i.append(b,sm);
+  const un=phoneData.unread['@'+x.code]||0;const m=document.createElement('button');m.type='button';m.textContent='✉ 문자'+(un?' ('+un+')':'');m.onclick=()=>{const w=$('statWin');if(w)w.classList.add('hidden');openFriendThread(x.code)};
+  let armed=false;const del=document.createElement('button');del.type='button';del.textContent='삭제';del.setAttribute('aria-label',(x.name||x.code)+' 친구 삭제');del.onclick=()=>{if(!armed){armed=true;del.textContent='정말?';setTimeout(()=>{armed=false;del.textContent='삭제'},3000);return}removeFriend(x.code)};
+  r.append(i,m,del);list.append(r)});body.append(list);
+ const sent=Object.keys(f.sent);if(sent.length){const s=document.createElement('div');s.className='alloc-note';s.textContent='보낸 신청: '+sent.map(k=>(f.sent[k].name||k)).join(', ')+' — 상대가 수락하면 친구가 돼요.';body.append(s)}
+ const note=document.createElement('div');note.className='alloc-note';note.textContent=SRV?'친구 신청과 문자는 상대가 꺼져 있어도 다음에 들어오면 도착해요.':'이 링크판에서는 친구 신청과 문자가 서로 접속해 있을 때 전달돼요. (서버판에서는 꺼져 있어도 도착해요)';body.append(note)}
 window.__charUI=window.__charUI||{};window.__charUI.friends=friendsTab;
-function refresh(){try{const w=$('statWin');if(w&&!w.classList.contains('hidden')&&w.__tab==='friends'&&typeof toggleStat==='function'){toggleStat(true,'friends')}}catch(e){}
- try{const pm=$('profileMini');if(pm)pm.classList.toggle('has-freq',incoming.size>0)}catch(e){}}
+let rT=0;function refresh(soft){clearTimeout(rT);rT=setTimeout(()=>{try{const w=$('statWin');const typing=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('.fr-add');
+ if(w&&!w.classList.contains('hidden')&&w.__tab==='friends'&&!(soft&&typing)&&typeof toggleStat==='function')toggleStat(true,'friends')}catch(e){}
+ try{const pm=$('profileMini');if(pm)pm.classList.toggle('has-freq',Object.keys(F().inc).length>0)}catch(e){}
+ if(phoneOpen()&&openCode==null&&$('phoneContent')&&$('phoneContent').querySelector('.sms-list'))try{decorate()}catch(e){}},soft?400:50)}
 
-// ---------- 연결 ----------
-(async()=>{try{if(!(window.claude&&claude.use))return;const r=await claude.use('room');if(!r)return;room=r;
- try{r.peers().forEach(p=>{if(p.isMe)return;const s=p.presence||{};seenQ[p.peer]=s.fq?s.fq.n:0;seenA[p.peer]=s.fa?s.fa.n:0})}catch(e){}
- r.onPeers(onPeers,()=>{})}catch(e){}})();
-window.__friends={request,accept,load,isFriend};
+// ---------- 폰: 친구 문자 ----------
+let openCode=null;
+function phoneOpen(){const p=document.querySelector('.flip-phone');return !!(p&&!p.closest('.hidden')&&getComputedStyle(p).display!=='none'&&$('phoneContent'))}
+function decorate(){const c=$('phoneContent');if(!c)return;const list=c.querySelector('.sms-list');if(!list||c.querySelector('.sms-friends'))return;const f=F();
+ const sec=document.createElement('div');sec.className='sms-friends';const h=document.createElement('div');h.className='sms-sec';h.textContent='👥 친구 ('+f.list.length+')';sec.append(h);
+ if(!f.list.length){const e=document.createElement('div');e.className='sms-sec-note';e.textContent='학생 정보 → 친구에서 친구 코드로 친구를 추가해 보세요.';sec.append(e)}
+ const dm=DM();f.list.forEach(x=>{const last=(dm[x.code]||[]).slice(-1)[0];const b=document.createElement('button');b.type='button';b.className='sms-person';b.onclick=()=>openFriendThread(x.code);
+  const fc=window.__faceCache&&onlineOf(x.code)&&window.__faceCache[onlineOf(x.code).peer];if(fc){const im=document.createElement('img');im.className='sms-face';im.alt='';im.src=fc;b.append(im)}
+  const l=document.createElement('span');l.className='sms-who';const nm=document.createElement('b');nm.textContent=(onlineOf(x.code)?'● ':'')+x.name;const pv=document.createElement('small');pv.textContent=last?((last.me?'나: ':'')+last.t):'';l.append(nm,pv);
+  const r=document.createElement('span');const un=phoneData.unread['@'+x.code]||0;r.textContent=(un?'● '+un+' ':'')+'›';b.append(l,r);sec.append(b)});
+ const h2=document.createElement('div');h2.className='sms-sec';h2.textContent='📒 학교';list.before(sec,h2)}
+const _om=window.openMessages;window.openMessages=function(){openCode=null;const r=_om.apply(this,arguments);try{decorate()}catch(e){}return r};
+const _ot=window.openThread;if(_ot)window.openThread=function(){openCode=null;return _ot.apply(this,arguments)};
+function openFriendThread(code){const ph=document.querySelector('.flip-phone');if(ph&&(ph.closest('.hidden')||getComputedStyle(ph).display==='none')){try{$('phoneLaunch').click()}catch(e){}}
+ openCode=code;phoneData.unread['@'+code]=0;try{unreadSave();refreshFlip()}catch(e){}renderThread(true)}
+window.openFriendThread=openFriendThread;
+function renderThread(focus){const c=$('phoneContent');if(!c||openCode==null)return;const code=openCode;const keep=$('fdmInput')?$('fdmInput').value:'';c.textContent='';
+ const h=document.createElement('h3');h.textContent='✉ '+friendName(code);const st=document.createElement('small');st.className='fdm-st';st.textContent=onlineOf(code)?' ● 접속 중':' ○ 오프라인';h.append(st);
+ const th=document.createElement('div');th.className='sms-thread';th.id='fdmThread';const dm=DM();const msgs=dm[code]||[];const pend=new Set(OUT().filter(x=>x.k==='msg'&&x.to===code).map(x=>x.id));
+ if(!msgs.length){const e=document.createElement('div');e.className='sms-sec-note';e.textContent='첫 문자를 보내 보세요.';th.append(e)}
+ msgs.forEach(m=>{const b=document.createElement('div');b.className='bubble'+(m.me?' me':'');b.textContent=m.t;if(m.me&&pend.has(m.id)){const s=document.createElement('small');s.className='fdm-pend';s.textContent=' · 전송 중';b.append(s)}th.append(b)});
+ const form=document.createElement('div');form.className='sms-compose';const inp=document.createElement('input');inp.id='fdmInput';inp.maxLength=120;inp.placeholder='메시지 입력…';inp.autocomplete='off';inp.value=keep;
+ const send=document.createElement('button');send.type='button';send.textContent='전송';
+ const go=()=>{const t=clean(inp.value,120).trim();if(!t)return;if(!isFriend(code)){toast('친구가 아니어서 보낼 수 없어요.');return}const it=queue(code,'msg',{t,name:clean(prof().name)});const d=DM();const tt=d[code]=d[code]||[];tt.push({id:it.id,me:true,t,at:Date.now()});if(tt.length>MAXMSG)tt.splice(0,tt.length-MAXMSG);saveDM(d);inp.value='';renderThread(true);try{softDing()}catch(e){}};
+ send.onclick=go;inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();go()}});
+ const back=document.createElement('button');back.type='button';back.className='fdm-back';back.textContent='‹ 문자함';back.onclick=()=>{openCode=null;openMessages()};
+ form.append(inp,send);c.append(back,h,th,form);th.scrollTop=th.scrollHeight;c.scrollTop=0;if(focus)setTimeout(()=>{try{inp.focus({preventScroll:true});c.scrollTop=0}catch(e){}},0)}
+// 보낸 문자가 도착했으면 '전송 중' 지우기
+setInterval(()=>{if(openCode&&phoneOpen()&&$('fdmThread')){const pend=OUT().filter(x=>x.k==='msg'&&x.to===openCode).length;const shown=$('fdmThread').querySelectorAll('.fdm-pend').length;if(pend!==shown)renderThread(false)}},2000);
+// 폰 바깥 화면(닫힌 폰)에 친구 문자도 보이게
+const _rf=window.refreshFlip;if(_rf)window.refreshFlip=function(){const r=_rf.apply(this,arguments);try{const box=$('fpMsgs');const f=F();const dm=DM();let added=false;
+ f.list.forEach(x=>{const un=phoneData.unread['@'+x.code]||0;if(!un)return;const last=(dm[x.code]||[]).slice(-1)[0];if(!last)return;if(!added){[...box.children].forEach(ch=>{if(ch.textContent==='새 문자 없음')ch.remove()});added=true}const d=document.createElement('div');d.textContent='✉ '+x.name+': '+last.t;box.prepend(d)})}catch(e){}return r};
+window.__social={request,accept,F,DM,OUT,myCode,tick,isFriend};
+// 캐릭터가 만들어지거나 불러와지면 바로 친구 코드 만들기
+const _ap=window.applyProfile;if(_ap)window.applyProfile=function(){const r=_ap.apply(this,arguments);try{myCode();codeReady=false;flushSoon()}catch(e){}return r};
+setTimeout(()=>{try{myCode();card();refreshFlip()}catch(e){}},0);
 })();
 </script>
 
