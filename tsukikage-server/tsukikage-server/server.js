@@ -20,8 +20,8 @@ const peers = new Map(); // id -> { res, presence, last, user }
 
 // ---------- 계정 (아이디 중복 금지 + 비밀번호) ----------
 // 비밀번호는 브라우저에서 한 번 바꾼 값(key)만 오고, 서버는 그것을 다시 scrypt로 바꿔서 저장해요.
-let db = { users: {}, sessions: {} };
-try { fs.mkdirSync(DATA_DIR, { recursive: true }); db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); db.users = db.users || {}; db.sessions = db.sessions || {}; } catch (e) { /* 처음이면 빈 상태 */ }
+let db = { users: {}, sessions: {}, codes: {}, mail: {} };
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); db.users = db.users || {}; db.sessions = db.sessions || {}; db.codes = db.codes || {}; db.mail = db.mail || {}; } catch (e) { /* 처음이면 빈 상태 */ }
 let dirty = false;
 setInterval(() => { if (!dirty) return; dirty = false; try { fs.writeFileSync(DB_FILE + '.tmp', JSON.stringify(db)); fs.renameSync(DB_FILE + '.tmp', DB_FILE); } catch (e) { dirty = true; } }, 3000);
 const idOK = id => typeof id === 'string' && /^[가-힣A-Za-z0-9_]{2,16}$/.test(id);
@@ -94,6 +94,46 @@ const server = http.createServer(async (req, res) => {
     if (!keyOK(b.key) || !sameKey(hashKey(b.key, u.salt), u.hash)) return json(res, 401, { error: 'wrong' });
     return json(res, 200, { ok: true, id: u.id, token: newSession(b.id.toLowerCase()) });
   }
+  // ---------- 캐릭터 친구 코드 · 우편함 (친구 신청, 문자) ----------
+  // 받는 사람이 꺼져 있어도 우편함에 넣어 두고, 들어오면 꺼내 가요.
+  const codeOK = c => typeof c === 'string' && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(c);
+  if (req.method === 'POST' && p === '/api/code') {
+    let b = {}; try { b = JSON.parse(await readBody(req, 2048)); } catch (e) { return json(res, 400, { error: 'bad' }); }
+    const uid = userOf(b.token); if (!uid) return json(res, 401, { error: 'token' });
+    if (!codeOK(b.code)) return json(res, 400, { error: 'code' });
+    if (db.codes[b.code] && db.codes[b.code] !== uid) return json(res, 409, { error: 'taken' });
+    if (!db.codes[b.code]) { db.codes[b.code] = uid; dirty = true; }
+    return json(res, 200, { ok: true });
+  }
+  if (req.method === 'POST' && p === '/api/mail/send') {
+    let b = {}; try { b = JSON.parse(await readBody(req, 64 * 1024)); } catch (e) { return json(res, 400, { error: 'bad' }); }
+    const uid = userOf(b.token); if (!uid) return json(res, 401, { error: 'token' });
+    if (!codeOK(b.from) || db.codes[b.from] !== uid) return json(res, 403, { error: 'from' });
+    const items = Array.isArray(b.items) ? b.items.slice(0, 40) : [];
+    let stored = 0;
+    for (const it of items) {
+      if (!it || !codeOK(it.to) || typeof it.id !== 'string' || it.id.length > 40 || typeof it.k !== 'string' || it.k.length > 8) continue;
+      if (JSON.stringify(it.d || {}).length > 2000) continue;
+      const box = db.mail[it.to] = db.mail[it.to] || [];
+      if (!box.some(x => x.id === it.id)) { box.push({ id: it.id, from: b.from, to: it.to, k: it.k, d: it.d || {}, at: Date.now() }); if (box.length > 300) box.splice(0, box.length - 300); dirty = true; }
+      stored++;
+    }
+    return json(res, 200, { ok: true, stored });
+  }
+  if (req.method === 'GET' && p === '/api/mail') {
+    const uid = userOf(url.searchParams.get('token')); const code = url.searchParams.get('code');
+    if (!uid) return json(res, 401, { error: 'token' });
+    if (!codeOK(code) || db.codes[code] !== uid) return json(res, 403, { error: 'code' });
+    return json(res, 200, { ok: true, items: (db.mail[code] || []).slice(0, 100) });
+  }
+  if (req.method === 'POST' && p === '/api/mail/ack') {
+    let b = {}; try { b = JSON.parse(await readBody(req, 16 * 1024)); } catch (e) { return json(res, 400, { error: 'bad' }); }
+    const uid = userOf(b.token); if (!uid || !codeOK(b.code) || db.codes[b.code] !== uid) return json(res, 403, { error: 'code' });
+    const ids = new Set(Array.isArray(b.ids) ? b.ids.slice(0, 200) : []);
+    if (db.mail[b.code]) { db.mail[b.code] = db.mail[b.code].filter(x => !ids.has(x.id)); if (!db.mail[b.code].length) delete db.mail[b.code]; dirty = true; }
+    return json(res, 200, { ok: true });
+  }
+
   // 로그인 상태 확인
   if (req.method === 'GET' && p === '/api/me') {
     const uid = userOf(url.searchParams.get('token'));
