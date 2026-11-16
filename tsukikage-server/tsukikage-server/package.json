@@ -1,0 +1,8 @@
+{
+  "name": "tsukikage-academy",
+  "version": "1.0.0",
+  "description": "월영 학원 친구 테스트용 서버 (외부 패키지 없음)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
